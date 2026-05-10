@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>関東・市区町村地図ルーレット</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --highlight-color: #ff3333;
+            --winner-color: #f1c40f;
+            --panel-bg: rgba(0, 0, 0, 0.7);
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Sans", sans-serif;
+            background-color: var(--bg-color); color: white;
+            text-align: center; margin: 0; padding: 10px; overflow-x: hidden;
+        }
+
+        .screen { display: none; }
+        .active-screen { display: block; animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        h1 { font-size: 18px; color: #888; letter-spacing: 2px; margin: 15px 0; }
+
+        .map-wrapper {
+            position: relative; display: inline-block; margin: 10px auto;
+            background: #111; border-radius: 20px; padding: 15px;
+            border: 1px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .map-image { display: block; width: 100%; max-width: 550px; height: auto; opacity: 0.8; }
+
+        .cell {
+            position: absolute;
+            width: 85px; height: 35px;
+            background: var(--panel-bg);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 4px;
+            transform: translate(-50%, -50%);
+            transition: all 0.1s;
+            pointer-events: none;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #ccc;
+            white-space: nowrap; overflow: hidden;
+        }
+
+        .active {
+            width: 100px; height: 45px;
+            background: var(--highlight-color) !important;
+            border-color: white;
+            box-shadow: 0 0 25px var(--highlight-color);
+            color: white !important;
+            font-size: 12px; font-weight: bold; z-index: 10;
+        }
+
+        .winner {
+            width: 120px; height: 55px;
+            background: var(--winner-color) !important;
+            box-shadow: 0 0 40px var(--winner-color);
+            color: black !important;
+            font-size: 14px; font-weight: 900; z-index: 100;
+            transform: translate(-50%, -50%) scale(1.1);
+            animation: flash 0.15s infinite;
+            border: 2px solid black;
+        }
+
+        @keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+
+        .res-area { font-size: 32px; font-weight: 900; color: var(--winner-color); min-height: 60px; margin-top: 10px; }
+        
+        button {
+            padding: 16px 60px; font-size: 24px; border-radius: 50px; border: none;
+            background: #fff; color: #000; font-weight: 900; cursor: pointer; box-shadow: 0 6px 0 #bbb;
+        }
+        button:active { transform: translateY(3px); box-shadow: 0 3px 0 #bbb; }
+        button:disabled { opacity: 0.3; cursor: wait; }
+
+        .back-btn { background: #222; color: #777; font-size: 14px; padding: 10px 30px; margin-top: 10px; border-radius: 5px; cursor: pointer; border: none; }
+        #next-guide { color: var(--winner-color); font-weight: bold; height: 20px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<audio id="sound-lever" src="レバーを倒す.mp3"></audio>
+<audio id="sound-spin" src="電子ルーレット回転中.mp3" loop></audio>
+<audio id="sound-slow" src="電子ルーレットが徐々に止まる.mp3"></audio>
+<audio id="sound-end" src="電子ルーレットの出目が点滅.mp3"></audio>
+
+<div id="screen1" class="screen active-screen">
+    <h1>STEP 1: 都県を選択</h1>
+    <div class="map-wrapper">
+        <img src="kanto.png" class="map-image" alt="関東全図">
+        <div class="cell" style="top: 65%; left: 46%;">東京</div>
+        <div class="cell" style="top: 78%; left: 38%;">神奈川</div>
+        <div class="cell" style="top: 52%; left: 45%;">埼玉</div>
+        <div class="cell" style="top: 72%; left: 70%;">千葉</div>
+        <div class="cell" style="top: 45%; left: 75%;">茨城</div>
+        <div class="cell" style="top: 28%; left: 60%;">栃木</div>
+        <div class="cell" style="top: 30%; left: 35%;">群馬</div>
+    </div>
+    <div class="res-area" id="res1">READY</div>
+    <div id="next-guide" style="visibility: hidden;">▲ パネルをクリックして詳細へ！ ▲</div>
+    <div class="controls"><button id="btn1">START</button></div>
+</div>
+
+<div id="screen2" class="screen">
+    <h1 id="detail-title">STEP 2: 市区町村を選択</h1>
+    <div class="map-wrapper" id="detail-container">
+        <img id="pref-bg" src="" class="map-image" alt="県別地図">
+    </div>
+    <div class="res-area" id="res2">READY</div>
+    <div class="controls"><button id="btn2">START</button></div>
+    <button class="back-btn" onclick="location.reload()">最初に戻る</button>
+</div>
+
+<script>
+// 町村は統合、大きな市は適宜分割または代表地点を配置
+const municipalData = {
+    "東京": { 
+        bg: "tokyo.png", 
+        points: [
+            {name: "千代田/中央/文京", t: 48, l: 85}, {name: "港/品川", t: 62, l: 86}, {name: "新宿/渋谷", t: 55, l: 80}, {name: "大田区", t: 75, l: 88}, {name: "世田谷区", t: 68, l: 78}, {name: "中野/杉並", t: 50, l: 74}, {name: "練馬区", t: 40, l: 74}, {name: "豊島/板橋/北", t: 38, l: 82}, {name: "足立/荒川", t: 32, l: 88}, {name: "葛飾/江戸川/墨田", t: 45, l: 92}, {name: "江東区", t: 58, l: 90},
+            {name: "八王子市", t: 65, l: 40}, {name: "町田市", t: 82, l: 55}, {name: "立川/昭島/日野", t: 55, l: 55}, {name: "武蔵野/三鷹/調布", t: 58, l: 70}, {name: "府中/小金井/国分寺", t: 50, l: 65}, {name: "小平/東村山/清瀬", t: 42, l: 62}, {name: "青梅市", t: 35, l: 25}, {name: "あきる野/福生/羽村", t: 45, l: 38}, {name: "多摩/稲城", t: 68, l: 65}, {name: "西多摩郡(奥多摩等)", t: 25, l: 15}
+        ] 
+    },
+    "神奈川": { 
+        bg: "kanagawa.png", 
+        points: [
+            {name: "横浜市北部", t: 35, l: 75}, {name: "横浜市中心部", t: 48, l: 82}, {name: "横浜市南部", t: 62, l: 80}, {name: "川崎市北部", t: 28, l: 85}, {name: "川崎市南部", t: 38, l: 92}, {name: "相模原市緑区", t: 22, l: 45}, {name: "相模原市(中央/南)", t: 35, l: 58}, {name: "横須賀市", t: 72, l: 88}, {name: "鎌倉/逗子/葉山", t: 65, l: 80}, {name: "藤沢/茅ヶ崎/寒川", t: 65, l: 68}, {name: "平塚/大磯/二宮", t: 65, l: 55}, {name: "厚木/愛川/清川", t: 45, l: 52}, {name: "大和/海老名/座間", t: 48, l: 65}, {name: "伊勢原/秦野", t: 58, l: 48}, {name: "小田原市", t: 72, l: 38}, {name: "足柄上郡", t: 58, l: 32}, {name: "足柄下郡(箱根等)", t: 78, l: 22}
+        ] 
+    },
+    "埼玉": { 
+        bg: "saitama.png", 
+        points: [
+            {name: "さいたま市(大宮/浦和)", t: 68, l: 72}, {name: "さいたま市(北/見沼/岩槻)", t: 58, l: 75}, {name: "川口/草加/蕨/戸田", t: 82, l: 78}, {name: "越谷/八潮/三郷/吉川", t: 75, l: 88}, {name: "春日部/蓮田/松伏", t: 60, l: 85}, {name: "上尾/桶川/北本/鴻巣", t: 52, l: 65}, {name: "所沢/狭山/入間", t: 82, l: 52}, {name: "川越/ふじみ野/三芳", t: 70, l: 60}, {name: "坂戸/鶴ヶ島/毛呂山", t: 60, l: 52}, {name: "東松山/比企郡", t: 48, l: 52}, {name: "秩父市", t: 55, l: 22}, {name: "秩父郡", t: 40, l: 28}, {name: "熊谷市/深谷市", t: 32, l: 45}, {name: "本庄/児玉郡", t: 22, l: 35}, {name: "行田/羽生/加須", t: 28, l: 65}, {name: "久喜/幸手/白岡", t: 45, l: 80}
+        ] 
+    },
+    "千葉": { 
+        bg: "chiba.png", 
+        points: [
+            {name: "千葉市(中央/美浜/花見川)", t: 50, l: 48}, {name: "千葉市(稲毛/若葉/緑)", t: 58, l: 55}, {name: "市川/浦安", t: 45, l: 32}, {name: "船橋/習志野", t: 40, l: 40}, {name: "松戸/柏/流山/我孫子", t: 22, l: 38}, {name: "野田市", t: 12, l: 32}, {name: "成田/印西/印旛郡", t: 28, l: 62}, {name: "佐倉/四街道/八街", t: 42, l: 60}, {name: "市原市", t: 68, l: 52}, {name: "木更津/君津/富津", t: 78, l: 42}, {name: "袖ケ浦/市原南部", t: 72, l: 58}, {name: "茂原/長生郡", t: 65, l: 72}, {name: "東金/山武/大網白里", t: 50, l: 75}, {name: "銚子/旭/匝瑳", t: 38, l: 92}, {name: "香取市/神崎/多古", t: 22, l: 78}, {name: "館山/南房総/鴨川", t: 90, l: 50}, {name: "勝浦/いすみ/夷隅郡", t: 78, l: 75}
+        ] 
+    },
+    "茨城": { 
+        bg: "ibaraki.png", 
+        points: [
+            {name: "水戸/ひたちなか/那珂", t: 42, l: 65}, {name: "日立/高萩/北茨城", t: 20, l: 75}, {name: "常陸太田/常陸大宮", t: 25, l: 55}, {name: "大子町", t: 10, l: 55}, {name: "笠間/城里/小美玉", t: 50, l: 55}, {name: "つくば/土浦/かすみがうら", t: 68, l: 52}, {name: "石岡/桜川/筑西", t: 58, l: 45}, {name: "下妻/結城/常総", t: 68, l: 38}, {name: "古河/坂東/猿島郡", t: 72, l: 25}, {name: "取手/守谷/龍ケ崎", t: 88, l: 42}, {name: "牛久/阿見/稲敷", t: 82, l: 55}, {name: "鹿嶋/潮来/神栖", t: 78, l: 82}, {name: "鉾田/行方/鹿行", t: 62, l: 75}
+        ] 
+    },
+    "栃木": { 
+        bg: "tochigi.png", 
+        points: [
+            {name: "宇都宮市", t: 55, l: 55}, {name: "足利/佐野", t: 82, l: 25}, {name: "栃木/小山/下野", t: 82, l: 52}, {name: "鹿沼市", t: 55, l: 38}, {name: "日光市", t: 35, l: 35}, {name: "真岡/芳賀郡", t: 65, l: 72}, {name: "那須塩原/大田原", t: 22, l: 65}, {name: "矢板/さくら/塩谷郡", t: 42, l: 58}, {name: "那須烏山/那珂川", t: 45, l: 78}, {name: "那須町", t: 10, l: 75}
+        ] 
+    },
+    "群馬": { 
+        bg: "gunma.png", 
+        points: [
+            {name: "前橋市", t: 52, l: 55}, {name: "高崎市", t: 62, l: 45}, {name: "桐生/みどり", t: 50, l: 75}, {name: "伊勢崎/玉村", t: 68, l: 62}, {name: "太田/館林/邑楽郡", t: 82, l: 82}, {name: "渋川/北群馬郡", t: 42, l: 52}, {name: "沼田/利根郡", t: 22, l: 65}, {name: "吾妻郡(草津等)", t: 38, l: 28}, {name: "安中/富岡/甘楽郡", t: 68, l: 32}, {name: "藤岡/多野郡", t: 82, l: 42}
+        ] 
+    }
+};
+
+const sLever = document.getElementById('sound-lever');
+const sSpin = document.getElementById('sound-spin');
+const sSlow = document.getElementById('sound-slow');
+const sEnd = document.getElementById('sound-end');
+
+async function startRoulette(elements, displayEl, btn, callback) {
+    btn.disabled = true;
+    [sSpin, sSlow, sEnd].forEach(s => { s.pause(); s.currentTime = 0; });
+    sLever.currentTime = 0;
+    sLever.play();
+    
+    setTimeout(() => { sSpin.play(); }, 150);
+
+    const startTime = Date.now();
+    const fastLoop = setInterval(() => {
+        elements.forEach(el => el.classList.remove('active'));
+        const target = elements[Math.floor(Math.random() * elements.length)];
+        target.classList.add('active');
+        displayEl.textContent = target.textContent;
+        
+        if (Date.now() - startTime > 3000) { 
+            clearInterval(fastLoop); 
+            sSpin.pause();
+            slowDown(); 
+        }
+    }, 60);
+
+    async function slowDown() {
+        sSlow.currentTime = 0;
+        sSlow.play();
+
+        for(let i = 0; i < 15; i++) {
+            elements.forEach(el => el.classList.remove('active'));
+            const target = elements[Math.floor(Math.random() * elements.length)];
+            target.classList.add('active');
+            displayEl.textContent = target.textContent;
+            await new Promise(r => setTimeout(r, 60 + (i * i * 3)));
+        }
+        
+        sSlow.pause();
+        sEnd.currentTime = 0;
+        sEnd.play();
+        
+        const final = elements.find(el => el.classList.contains('active'));
+        final.classList.replace('active', 'winner');
+        displayEl.innerHTML = "✨ " + final.textContent + " ✨";
+        
+        btn.disabled = false; btn.textContent = "RETRY";
+        if(callback) callback(final);
+    }
+}
+
+const step1Cells = Array.from(document.querySelectorAll('#screen1 .cell'));
+const btn1 = document.getElementById('btn1');
+btn1.onclick = () => {
+    [sSpin, sSlow, sEnd].forEach(s => { s.pause(); s.currentTime = 0; });
+    step1Cells.forEach(c => { c.classList.remove('winner', 'active'); c.style.pointerEvents = 'none'; });
+    document.getElementById('next-guide').style.visibility = 'hidden';
+    startRoulette(step1Cells, document.getElementById('res1'), btn1, (winner) => {
+        winner.style.pointerEvents = 'auto';
+        document.getElementById('next-guide').style.visibility = 'visible';
+        winner.onclick = () => {
+            sEnd.pause();
+            transitionToStep2(winner.textContent);
+        };
+    });
+};
+
+function transitionToStep2(prefName) {
+    document.getElementById('screen1').classList.remove('active-screen');
+    document.getElementById('screen2').classList.add('active-screen');
+    const data = municipalData[prefName];
+    document.getElementById('pref-bg').src = data.bg;
+    document.getElementById('detail-title').textContent = prefName + " の市区町村抽選";
+    const container = document.getElementById('detail-container');
+    container.querySelectorAll('.cell').forEach(c => c.remove());
+    const points = data.points.map(p => {
+        const div = document.createElement('div');
+        div.className = 'cell'; div.style.top = p.t + "%"; div.style.left = p.l + "%";
+        div.textContent = p.name;
+        container.appendChild(div);
+        return div;
+    });
+    const btn2 = document.getElementById('btn2');
+    btn2.disabled = false; btn2.textContent = "START";
+    btn2.onclick = () => {
+        [sSpin, sSlow, sEnd].forEach(s => { s.pause(); s.currentTime = 0; });
+        points.forEach(p => p.classList.remove('winner', 'active'));
+        startRoulette(points, document.getElementById('res2'), btn2);
+    };
+}
+</script>
+</body>
+</html>
